@@ -1,0 +1,14 @@
+<project name="customBuildCallbacks" default="noDefault">
+    <target name="noDefault"/>
+    
+    <macrodef name="apitooling.apigeneration">
+        <attribute name="projectName" default=""/>
+        <attribute name="project" default=""/>
+        <attribute name="binary" default=""/>
+        <attribute name="target" default=""/>
+        <attribute name="extramanifests" default=""/>
+        <sequential>
+            <echo message="Dummy apitooling.apigeneration task executed."/>
+        </sequential>
+    </macrodef>
+</project>

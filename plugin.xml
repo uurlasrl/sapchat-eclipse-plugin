@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.4"?>
+<plugin>
+   <extension
+         point="org.eclipse.ui.views">
+      <category
+            name="SAP Chat AI"
+            id="com.sapchat.plugin.category">
+      </category>
+      <view
+            name="SAP Chat AI Assistant"
+            category="com.sapchat.plugin.category"
+            class="com.sapchat.plugin.views.ChatView"
+            id="com.sapchat.plugin.views.ChatView">
+      </view>
+   </extension>
+   <extension
+         point="org.eclipse.ui.preferencePages">
+      <page
+            class="com.sapchat.plugin.preferences.ChatPreferencePage"
+            id="com.sapchat.plugin.preferences.ChatPreferencePage"
+            name="SAP Chat AI">
+      </page>
+   </extension>
+   <extension
+         point="org.eclipse.core.runtime.preferences">
+      <initializer
+            class="com.sapchat.plugin.preferences.PreferenceInitializer">
+      </initializer>
+   </extension>
+</plugin>
