@@ -275,7 +275,7 @@ public class ChatView extends ViewPart {
 						for (int i = 0; i < currentConversation.size(); i++) {
 							ChatMessage msg = currentConversation.get(i);
 							String prefix = "user".equals(msg.getRole()) ? "User: " : "AI: ";
-							String escaped = msg.getContent().replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "");
+							String escaped = msg.getContent().replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "").replace("\t", "\\t");
 							payloadBuilder.append(prefix).append(escaped);
 							if (i < currentConversation.size() - 1) payloadBuilder.append("\\n\\n");
 						}
@@ -287,7 +287,7 @@ public class ChatView extends ViewPart {
 						for (int i = 0; i < currentConversation.size(); i++) {
 							ChatMessage msg = currentConversation.get(i);
 							String r = "user".equals(msg.getRole()) ? "user" : "model";
-							String escaped = msg.getContent().replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "");
+							String escaped = msg.getContent().replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "").replace("\t", "\\t");
 							payloadBuilder.append("{\"role\": \"").append(r).append("\", \"parts\": [{\"text\": \"").append(escaped).append("\"}]}");
 							if (i < currentConversation.size() - 1) payloadBuilder.append(", ");
 						}
@@ -306,7 +306,7 @@ public class ChatView extends ViewPart {
 					payloadBuilder.append("{\"model\": \"").append(cleanModel).append("\", \"messages\": [");
 					for (int i = 0; i < currentConversation.size(); i++) {
 						ChatMessage msg = currentConversation.get(i);
-						String escaped = msg.getContent().replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "");
+						String escaped = msg.getContent().replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "").replace("\t", "\\t");
 						payloadBuilder.append("{\"role\": \"").append(msg.getRole()).append("\", \"content\": \"").append(escaped).append("\"}");
 						if (i < currentConversation.size() - 1) payloadBuilder.append(", ");
 					}
