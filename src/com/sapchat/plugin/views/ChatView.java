@@ -53,8 +53,7 @@ public class ChatView extends ViewPart {
 	private Combo historyCombo;
 	
 	private List<ChatMessage> currentConversation = new ArrayList<>();
-
-//	private List<ChatMessage> currentConversation = new ArrayList<>();
+	private String currentSessionId = null;
 
 	/**
 	 * Costruttore predefinito.
@@ -179,6 +178,7 @@ public class ChatView extends ViewPart {
 		currentConversation.clear();
 		chatHistory.setText("Benvenuto! Come posso aiutarti con il tuo sviluppo SAP ABAP?\n\n");
 		chatInput.setText("");
+		currentSessionId = null;
 	}
 	
 	/**
@@ -209,12 +209,61 @@ public class ChatView extends ViewPart {
 	 */
 	private void loadConversation(String filename) {
 		currentConversation = ChatHistoryManager.loadHistory(filename);
+		
+		// Imposta il currentSessionId estraendolo dal nome del file caricato
+		if (filename.startsWith("chat_history_") && filename.endsWith(".json")) {
+			currentSessionId = filename.substring("chat_history_".length(), filename.length() - ".json".length());
+		} else if (filename.startsWith("chat_") && filename.endsWith(".json")) {
+			currentSessionId = filename.substring("chat_".length(), filename.length() - ".json".length());
+		} else {
+			currentSessionId = filename;
+		}
+		
 		chatHistory.setText("");
 		for (ChatMessage msg : currentConversation) {
 			String name = "user".equals(msg.getRole()) ? "Tu" : "AI";
 			chatHistory.append(name + ": " + msg.getContent() + "\n\n");
 		}
 		chatHistory.setSelection(chatHistory.getText().length());
+	}
+
+	/**
+	 * Salva lo storico della conversazione corrente sul disco.
+	 * Se non esiste ancora una sessione, ne genera una basata su timestamp.
+	 */
+	private void saveCurrentHistory() {
+		if (currentConversation == null || currentConversation.isEmpty()) {
+			return;
+		}
+		if (currentSessionId == null) {
+			currentSessionId = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+		}
+		String filename = "chat_history_" + currentSessionId + ".json";
+		ChatHistoryManager.saveHistory(currentConversation, filename);
+	}
+
+	/**
+	 * Filtra la lista dei messaggi in base alle impostazioni di ottimizzazione (Sliding Window).
+	 * Restituisce una nuova lista indipendente per evitare eccezioni di modifica concorrente o out-of-bounds.
+	 */
+	private List<ChatMessage> getMessagesToSend(List<ChatMessage> fullHistory, boolean enableOptimization, int windowSize) {
+		if (fullHistory == null) {
+			return new ArrayList<>();
+		}
+		int size = fullHistory.size();
+		if (!enableOptimization || windowSize <= 0 || size <= windowSize + 1) {
+			return new ArrayList<>(fullHistory);
+		}
+		
+		List<ChatMessage> optimizedList = new ArrayList<>();
+		// Include sempre il primissimo messaggio (es. regole di ingaggio)
+		optimizedList.add(fullHistory.get(0));
+		
+		// Include gli ultimi N messaggi
+		int start = size - windowSize;
+		optimizedList.addAll(fullHistory.subList(start, size));
+		
+		return optimizedList;
 	}
 
 	/**
@@ -228,6 +277,7 @@ public class ChatView extends ViewPart {
 		}
 
 		currentConversation.add(new ChatMessage("user", text));
+		saveCurrentHistory(); // Salva immediatamente il messaggio dell'utente su disco
 		chatHistory.append("Tu: " + text + "\n\n");
 		chatInput.setText("");
 		
@@ -268,28 +318,33 @@ public class ChatView extends ViewPart {
 				String debugUrl = cleanEndpoint;
 				String debugPayload = "";
 				
+				// Leggi le preferenze per la sliding window
+				boolean enableOptimization = store.getBoolean(PreferenceConstants.ENABLE_HISTORY_OPTIMIZATION);
+				int windowSize = store.getInt(PreferenceConstants.SLIDING_WINDOW_SIZE);
+				List<ChatMessage> messagesToSend = getMessagesToSend(currentConversation, enableOptimization, windowSize);
+				
 				if (isGemini) {
 					if (cleanEndpoint.contains("/interactions")) {
 						StringBuilder payloadBuilder = new StringBuilder();
 						payloadBuilder.append("{\"model\": \"").append(cleanModel).append("\", \"input\": \"");
-						for (int i = 0; i < currentConversation.size(); i++) {
-							ChatMessage msg = currentConversation.get(i);
+						for (int i = 0; i < messagesToSend.size(); i++) {
+							ChatMessage msg = messagesToSend.get(i);
 							String prefix = "user".equals(msg.getRole()) ? "User: " : "AI: ";
 							String escaped = msg.getContent().replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "").replace("\t", "\\t");
 							payloadBuilder.append(prefix).append(escaped);
-							if (i < currentConversation.size() - 1) payloadBuilder.append("\\n\\n");
+							if (i < messagesToSend.size() - 1) payloadBuilder.append("\\n\\n");
 						}
 						payloadBuilder.append("\"}");
 						debugPayload = payloadBuilder.toString();
 					} else {
 						StringBuilder payloadBuilder = new StringBuilder();
 						payloadBuilder.append("{\"model\": \"").append(cleanModel).append("\", \"contents\": [");
-						for (int i = 0; i < currentConversation.size(); i++) {
-							ChatMessage msg = currentConversation.get(i);
+						for (int i = 0; i < messagesToSend.size(); i++) {
+							ChatMessage msg = messagesToSend.get(i);
 							String r = "user".equals(msg.getRole()) ? "user" : "model";
 							String escaped = msg.getContent().replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "").replace("\t", "\\t");
 							payloadBuilder.append("{\"role\": \"").append(r).append("\", \"parts\": [{\"text\": \"").append(escaped).append("\"}]}");
-							if (i < currentConversation.size() - 1) payloadBuilder.append(", ");
+							if (i < messagesToSend.size() - 1) payloadBuilder.append(", ");
 						}
 						payloadBuilder.append("]}");
 						debugPayload = payloadBuilder.toString();
@@ -304,11 +359,11 @@ public class ChatView extends ViewPart {
 				} else {
 					StringBuilder payloadBuilder = new StringBuilder();
 					payloadBuilder.append("{\"model\": \"").append(cleanModel).append("\", \"messages\": [");
-					for (int i = 0; i < currentConversation.size(); i++) {
-						ChatMessage msg = currentConversation.get(i);
+					for (int i = 0; i < messagesToSend.size(); i++) {
+						ChatMessage msg = messagesToSend.get(i);
 						String escaped = msg.getContent().replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "").replace("\t", "\\t");
 						payloadBuilder.append("{\"role\": \"").append(msg.getRole()).append("\", \"content\": \"").append(escaped).append("\"}");
-						if (i < currentConversation.size() - 1) payloadBuilder.append(", ");
+						if (i < messagesToSend.size() - 1) payloadBuilder.append(", ");
 					}
 					payloadBuilder.append("]}");
 					debugPayload = payloadBuilder.toString();
@@ -349,7 +404,7 @@ public class ChatView extends ViewPart {
 					
 					// Aggiungi alla conversazione e salva
 					currentConversation.add(new ChatMessage("assistant", responseText));
-					ChatHistoryManager.saveHistory(currentConversation);
+					saveCurrentHistory(); // Sovrascrive lo stesso file con la risposta dell'assistente
 				} else {
 					responseText = "Errore API (" + response.statusCode() + "): " + body;
 				}

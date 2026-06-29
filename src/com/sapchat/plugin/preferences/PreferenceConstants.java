@@ -13,4 +13,8 @@ public class PreferenceConstants {
 	
 	public static final String PROVIDER_GEMINI = "Gemini";
 	public static final String PROVIDER_DEEPSEEK = "DeepSeek";
+	
+	public static final String ENABLE_HISTORY_OPTIMIZATION = "enableHistoryOptimization";
+	public static final String SLIDING_WINDOW_SIZE = "slidingWindowSize";
 }
+

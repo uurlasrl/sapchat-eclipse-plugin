@@ -54,6 +54,21 @@ public class ChatHistoryManager {
 		
 		String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
 		String filename = "chat_" + timestamp + ".json";
+		return saveHistory(messages, filename);
+	}
+
+	/**
+	 * Salva una lista di messaggi in un file JSON specifico (sovrascrivendolo se esiste).
+	 * 
+	 * @param messages la lista di messaggi (ChatMessage) da salvare
+	 * @param filename il nome del file JSON in cui salvare (es. "chat_history_<sessionId>.json")
+	 * @return il nome del file salvato, oppure null in caso di errore
+	 */
+	public static String saveHistory(List<ChatMessage> messages, String filename) {
+		if (messages == null || messages.isEmpty() || filename == null || filename.isEmpty()) {
+			return null;
+		}
+		
 		Path file = getHistoryDir().resolve(filename);
 		
 		StringBuilder json = new StringBuilder("[\n");

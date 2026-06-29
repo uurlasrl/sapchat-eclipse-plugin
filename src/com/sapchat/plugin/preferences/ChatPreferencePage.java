@@ -1,7 +1,9 @@
 package com.sapchat.plugin.preferences;
 
+import org.eclipse.jface.preference.BooleanFieldEditor;
 import org.eclipse.jface.preference.ComboFieldEditor;
 import org.eclipse.jface.preference.FieldEditorPreferencePage;
+import org.eclipse.jface.preference.IntegerFieldEditor;
 import org.eclipse.jface.preference.StringFieldEditor;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.layout.GridData;
@@ -65,6 +67,21 @@ public class ChatPreferencePage extends FieldEditorPreferencePage implements IWo
 			}
 		};
 		addField(deepseekKeyField);
+		
+		addSeparator();
+		
+		// History Optimization Config
+		addField(new BooleanFieldEditor(
+				PreferenceConstants.ENABLE_HISTORY_OPTIMIZATION,
+				"Enable History Optimization (Sliding Window)",
+				getFieldEditorParent()));
+				
+		IntegerFieldEditor windowSizeEditor = new IntegerFieldEditor(
+				PreferenceConstants.SLIDING_WINDOW_SIZE,
+				"Sliding Window Size (Number of messages)",
+				getFieldEditorParent());
+		windowSizeEditor.setValidRange(1, 1000);
+		addField(windowSizeEditor);
 	}
 	
 	private void addSeparator() {

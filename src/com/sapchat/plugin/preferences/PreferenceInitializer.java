@@ -18,5 +18,8 @@ public class PreferenceInitializer extends AbstractPreferenceInitializer {
 		
 		store.setDefault(PreferenceConstants.DEEPSEEK_ENDPOINT, "https://api.deepseek.com/chat/completions");
 		store.setDefault(PreferenceConstants.DEEPSEEK_MODEL, "deepseek-chat");
+		
+		store.setDefault(PreferenceConstants.ENABLE_HISTORY_OPTIMIZATION, false);
+		store.setDefault(PreferenceConstants.SLIDING_WINDOW_SIZE, 6);
 	}
 }
