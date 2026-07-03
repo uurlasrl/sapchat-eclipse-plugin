@@ -293,18 +293,27 @@ public class ChatView extends ViewPart {
 		if (fullHistory == null) {
 			return new ArrayList<>();
 		}
-		int size = fullHistory.size();
+		
+		// Filtra solo i messaggi utente e assistente, ignorando i messaggi di sistema (come telemetria e "Caricamento...")
+		List<ChatMessage> filteredHistory = new ArrayList<>();
+		for (ChatMessage msg : fullHistory) {
+			if (!"system".equals(msg.getRole())) {
+				filteredHistory.add(msg);
+			}
+		}
+		
+		int size = filteredHistory.size();
 		if (!enableOptimization || windowSize <= 0 || size <= windowSize + 1) {
-			return new ArrayList<>(fullHistory);
+			return filteredHistory;
 		}
 		
 		List<ChatMessage> optimizedList = new ArrayList<>();
-		// Include sempre il primissimo messaggio (es. regole di ingaggio)
-		optimizedList.add(fullHistory.get(0));
+		// Include sempre il primissimo messaggio
+		optimizedList.add(filteredHistory.get(0));
 		
 		// Include gli ultimi N messaggi
 		int start = size - windowSize;
-		optimizedList.addAll(fullHistory.subList(start, size));
+		optimizedList.addAll(filteredHistory.subList(start, size));
 		
 		return optimizedList;
 	}
@@ -366,7 +375,10 @@ public class ChatView extends ViewPart {
 				// Leggi le preferenze per la sliding window
 				boolean enableOptimization = store.getBoolean(PreferenceConstants.ENABLE_HISTORY_OPTIMIZATION);
 				int windowSize = store.getInt(PreferenceConstants.SLIDING_WINDOW_SIZE);
-				List<ChatMessage> messagesToSend = getMessagesToSend(currentSession.getMessages(), enableOptimization, windowSize);
+				
+				List<ChatMessage> pureHistory = new ArrayList<>(currentSession.getMessages());
+				pureHistory.remove(loadingMsgObj);
+				List<ChatMessage> messagesToSend = getMessagesToSend(pureHistory, enableOptimization, windowSize);
 				
 				if (isGemini) {
 					if (cleanEndpoint.contains("/interactions")) {
@@ -433,6 +445,8 @@ public class ChatView extends ViewPart {
 				HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 				String body = response.body();
 				
+				currentSession.getMessages().remove(loadingMsgObj);
+				
 				// Parse JSON con Gson
 				JsonObject root = JsonParser.parseString(body).getAsJsonObject();
 				
@@ -442,13 +456,29 @@ public class ChatView extends ViewPart {
 				telemetryBlock = "";
 				
 				try {
-					if (isGemini) {
+					if (root.has("error")) {
+						responseText = "API Error: " + root.get("error").toString();
+					} else if (isGemini) {
 						if (root.has("candidates") && root.getAsJsonArray("candidates").size() > 0) {
 							JsonObject candidate = root.getAsJsonArray("candidates").get(0).getAsJsonObject();
 							if (candidate.has("content")) {
 								responseText = candidate.getAsJsonObject("content")
 										.getAsJsonArray("parts").get(0).getAsJsonObject()
 										.get("text").getAsString();
+							}
+						} else if (root.has("steps")) {
+							com.google.gson.JsonArray steps = root.getAsJsonArray("steps");
+							for (int i = 0; i < steps.size(); i++) {
+								JsonObject step = steps.get(i).getAsJsonObject();
+								if (step.has("type") && "model_output".equals(step.get("type").getAsString()) && step.has("content")) {
+									com.google.gson.JsonArray contentArr = step.getAsJsonArray("content");
+									for (int j = 0; j < contentArr.size(); j++) {
+										JsonObject contentObj = contentArr.get(j).getAsJsonObject();
+										if (contentObj.has("type") && "text".equals(contentObj.get("type").getAsString())) {
+											responseText = contentObj.get("text").getAsString();
+										}
+									}
+								}
 							}
 						}
 						
@@ -457,6 +487,11 @@ public class ChatView extends ViewPart {
 							promptTokens = usage.has("promptTokenCount") ? usage.get("promptTokenCount").getAsInt() : 0;
 							completionTokens = usage.has("candidatesTokenCount") ? usage.get("candidatesTokenCount").getAsInt() : 0;
 							cachedTokens = usage.has("cachedContentTokenCount") ? usage.get("cachedContentTokenCount").getAsInt() : 0;
+						} else if (root.has("usage")) {
+							JsonObject usage = root.getAsJsonObject("usage");
+							promptTokens = usage.has("total_input_tokens") ? usage.get("total_input_tokens").getAsInt() : 0;
+							completionTokens = usage.has("total_output_tokens") ? usage.get("total_output_tokens").getAsInt() : 0;
+							cachedTokens = usage.has("total_cached_tokens") ? usage.get("total_cached_tokens").getAsInt() : 0;
 						}
 					} else {
 						if (root.has("choices") && root.getAsJsonArray("choices").size() > 0) {
@@ -526,8 +561,8 @@ public class ChatView extends ViewPart {
 					responseText = "Errore nel parsing della risposta JSON: " + e.getMessage() + "\nBody: " + body;
 				}
 				
-			} catch (Exception ex) {
-				responseText = "Eccezione durante la chiamata: " + ex.getMessage();
+			} catch (Throwable ex) {
+				responseText = "Eccezione durante la chiamata: " + ex.getMessage() + "\n" + ex.getClass().getName();
 			}
 			
 			final String finalRes = responseText;
