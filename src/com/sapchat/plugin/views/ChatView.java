@@ -9,6 +9,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
 import org.eclipse.jface.action.Action;
 import org.eclipse.jface.action.IToolBarManager;
 import org.eclipse.jface.layout.GridDataFactory;
@@ -25,6 +28,8 @@ import org.eclipse.swt.widgets.Combo;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Text;
+import org.eclipse.swt.browser.Browser;
+import org.eclipse.swt.graphics.Color;
 import org.eclipse.ui.IActionBars;
 import org.eclipse.ui.IEditorPart;
 import org.eclipse.ui.IWorkbenchWindow;
@@ -46,13 +51,13 @@ public class ChatView extends ViewPart {
 
 	public static final String ID = "com.sapchat.plugin.views.ChatView";
 
-	private Text chatHistory;
+	private Browser chatHistory;
 	private Text chatInput;
 	private Button sendButton;
 	private Combo actionsCombo;
 	private Combo historyCombo;
 	
-	private List<ChatMessage> currentConversation = new ArrayList<>();
+	private ChatSession currentSession = new ChatSession();
 	private String currentSessionId = null;
 
 	/**
@@ -96,8 +101,8 @@ public class ChatView extends ViewPart {
 		SashForm sashForm = new SashForm(parent, SWT.VERTICAL);
 		GridDataFactory.fillDefaults().grab(true, true).applyTo(sashForm);
 
-		chatHistory = new Text(sashForm, SWT.BORDER | SWT.MULTI | SWT.V_SCROLL | SWT.READ_ONLY | SWT.WRAP);
-		chatHistory.setText("Benvenuto! Come posso aiutarti con il tuo sviluppo SAP ABAP?\n\n");
+		chatHistory = new Browser(sashForm, SWT.NONE);
+		updateBrowserContent();
 
 		Composite inputComposite = new Composite(sashForm, SWT.NONE);
 		GridLayoutFactory.fillDefaults().numColumns(2).applyTo(inputComposite);
@@ -138,7 +143,7 @@ public class ChatView extends ViewPart {
 			@Override
 			public void keyPressed(KeyEvent e) {
 				if (e.character == SWT.CR || e.character == SWT.LF) {
-					if ((e.stateMask & SWT.SHIFT) == 0) {
+					if ((e.stateMask & SWT.SHIFT) == 0 && (e.stateMask & SWT.ALT) == 0) {
 						e.doit = false;
 						sendMessage();
 					}
@@ -149,6 +154,49 @@ public class ChatView extends ViewPart {
 		sashForm.setWeights(new int[] { 70, 30 });
 		
 		createActions();
+	}
+	
+	private void addSystemMessage(String text) {
+		currentSession.getMessages().add(new ChatMessage("system", text));
+		updateBrowserContent();
+	}
+	
+	private void updateBrowserContent() {
+		if (chatHistory == null || chatHistory.isDisposed()) return;
+		
+		StringBuilder html = new StringBuilder();
+		
+		// Ottieni il colore di sfondo di sistema
+		Color bgColor = Display.getDefault().getSystemColor(SWT.COLOR_LIST_BACKGROUND);
+		Color fgColor = Display.getDefault().getSystemColor(SWT.COLOR_LIST_FOREGROUND);
+		
+		String bgHex = String.format("#%02x%02x%02x", bgColor.getRed(), bgColor.getGreen(), bgColor.getBlue());
+		String fgHex = String.format("#%02x%02x%02x", fgColor.getRed(), fgColor.getGreen(), fgColor.getBlue());
+		
+		html.append("<html><head><style>");
+		html.append("body { background-color: ").append(bgHex).append("; color: ").append(fgHex).append("; font-family: sans-serif; padding: 10px; }");
+		html.append("pre { font-family: Consolas, Monaco, monospace; font-size: 13px; }");
+		html.append(".user-msg { margin-bottom: 15px; }");
+		html.append(".ai-msg { margin-bottom: 15px; }");
+		html.append(".sys-msg { margin-bottom: 15px; font-style: italic; color: #cc0000; }");
+		html.append("</style></head><body>");
+		
+		if (currentSession.getMessages().isEmpty()) {
+			html.append("<div class='sys-msg'>Benvenuto! Come posso aiutarti con il tuo sviluppo SAP ABAP?</div>");
+		} else {
+			for (ChatMessage msg : currentSession.getMessages()) {
+				String roleClass = "user".equals(msg.getRole()) ? "user-msg" : ("system".equals(msg.getRole()) ? "sys-msg" : "ai-msg");
+				String name = "user".equals(msg.getRole()) ? "<b>Tu:</b><br/>" : ("system".equals(msg.getRole()) ? "<b>Sistema:</b><br/>" : "<b>AI:</b><br/>");
+				
+				html.append("<div class='").append(roleClass).append("'>");
+				html.append(name);
+				html.append(MarkdownToHtmlConverter.convert(msg.getContent()));
+				html.append("</div>");
+			}
+		}
+		
+		html.append("</body></html>");
+		chatHistory.setText(html.toString());
 	}
 
 	/**
@@ -175,8 +223,8 @@ public class ChatView extends ViewPart {
 	 * Ripulisce la conversazione corrente, sia in memoria che nell'interfaccia grafica.
 	 */
 	private void clearChat() {
-		currentConversation.clear();
-		chatHistory.setText("Benvenuto! Come posso aiutarti con il tuo sviluppo SAP ABAP?\n\n");
+		currentSession.clear();
+		updateBrowserContent();
 		chatInput.setText("");
 		currentSessionId = null;
 	}
@@ -208,7 +256,7 @@ public class ChatView extends ViewPart {
 	 * @param filename il nome del file JSON da caricare
 	 */
 	private void loadConversation(String filename) {
-		currentConversation = ChatHistoryManager.loadHistory(filename);
+		currentSession = ChatHistoryManager.loadHistory(filename);
 		
 		// Imposta il currentSessionId estraendolo dal nome del file caricato
 		if (filename.startsWith("chat_history_") && filename.endsWith(".json")) {
@@ -219,12 +267,7 @@ public class ChatView extends ViewPart {
 			currentSessionId = filename;
 		}
 		
-		chatHistory.setText("");
-		for (ChatMessage msg : currentConversation) {
-			String name = "user".equals(msg.getRole()) ? "Tu" : "AI";
-			chatHistory.append(name + ": " + msg.getContent() + "\n\n");
-		}
-		chatHistory.setSelection(chatHistory.getText().length());
+		updateBrowserContent();
 	}
 
 	/**
@@ -232,14 +275,14 @@ public class ChatView extends ViewPart {
 	 * Se non esiste ancora una sessione, ne genera una basata su timestamp.
 	 */
 	private void saveCurrentHistory() {
-		if (currentConversation == null || currentConversation.isEmpty()) {
+		if (currentSession == null || currentSession.getMessages().isEmpty()) {
 			return;
 		}
 		if (currentSessionId == null) {
 			currentSessionId = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
 		}
 		String filename = "chat_history_" + currentSessionId + ".json";
-		ChatHistoryManager.saveHistory(currentConversation, filename);
+		ChatHistoryManager.saveHistory(currentSession, filename);
 	}
 
 	/**
@@ -276,17 +319,18 @@ public class ChatView extends ViewPart {
 			return;
 		}
 
-		currentConversation.add(new ChatMessage("user", text));
+		currentSession.getMessages().add(new ChatMessage("user", text));
 		saveCurrentHistory(); // Salva immediatamente il messaggio dell'utente su disco
-		chatHistory.append("Tu: " + text + "\n\n");
+		updateBrowserContent();
 		chatInput.setText("");
 		
 		chatInput.setEnabled(false);
 		sendButton.setEnabled(false);
 		
-		String loadingMsg = "Caricamento...\n";
-		chatHistory.append(loadingMsg);
-		chatHistory.setSelection(chatHistory.getText().length());
+		// Add a temporary loading message to currentSession (to be removed later)
+		ChatMessage loadingMsgObj = new ChatMessage("system", "Caricamento...");
+		currentSession.getMessages().add(loadingMsgObj);
+		updateBrowserContent();
 
 		IPreferenceStore store = Activator.getDefault().getPreferenceStore();
 		String provider = store.getString(PreferenceConstants.ACTIVE_PROVIDER);
@@ -301,8 +345,8 @@ public class ChatView extends ViewPart {
 		final String cleanModel = (model == null) ? "" : model.trim();
 
 		if (cleanApiKey.isEmpty()) {
-			chatHistory.setText(chatHistory.getText().replace(loadingMsg, ""));
-			chatHistory.append("Sistema: Errore. Nessuna API Key trovata per " + provider + ".\n\n");
+			currentSession.getMessages().remove(loadingMsgObj);
+			addSystemMessage("Errore. Nessuna API Key trovata per " + provider + ".");
 			chatInput.setEnabled(true);
 			sendButton.setEnabled(true);
 			chatInput.setFocus();
@@ -311,6 +355,7 @@ public class ChatView extends ViewPart {
 
 		CompletableFuture.runAsync(() -> {
 			String responseText = "";
+			String telemetryBlock = "";
 			try {
 				HttpClient client = HttpClient.newHttpClient();
 				HttpRequest request;
@@ -321,7 +366,7 @@ public class ChatView extends ViewPart {
 				// Leggi le preferenze per la sliding window
 				boolean enableOptimization = store.getBoolean(PreferenceConstants.ENABLE_HISTORY_OPTIMIZATION);
 				int windowSize = store.getInt(PreferenceConstants.SLIDING_WINDOW_SIZE);
-				List<ChatMessage> messagesToSend = getMessagesToSend(currentConversation, enableOptimization, windowSize);
+				List<ChatMessage> messagesToSend = getMessagesToSend(currentSession.getMessages(), enableOptimization, windowSize);
 				
 				if (isGemini) {
 					if (cleanEndpoint.contains("/interactions")) {
@@ -378,35 +423,107 @@ public class ChatView extends ViewPart {
 				
 				final String dUrl = debugUrl;
 				final String dPayload = debugPayload;
+				final boolean showDebug = store.getBoolean(PreferenceConstants.ENABLE_DEBUG_OUTPUT);
 				Display.getDefault().asyncExec(() -> {
-					if (chatHistory != null && !chatHistory.isDisposed()) {
-						chatHistory.append("--- DEBUG INFO ---\nURL: " + dUrl + "\nPayload: " + dPayload + "\n------------------\n\n");
-						chatHistory.setSelection(chatHistory.getText().length());
+					if (showDebug) {
+						addSystemMessage("--- DEBUG INFO ---\nURL: " + dUrl + "\nPayload: " + dPayload);
 					}
 				});
 				
 				HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 				String body = response.body();
 				
-				// Estrazione manuale basica del testo dal JSON
-				String searchKey = isGemini ? "\"text\":" : "\"content\":";
-				int idx = body.indexOf(searchKey);
-				if (idx != -1) {
-					int start = body.indexOf("\"", idx + searchKey.length()) + 1;
-					int end = start;
-					while (end < body.length()) {
-						if (body.charAt(end) == '"' && body.charAt(end - 1) != '\\') {
-							break;
+				// Parse JSON con Gson
+				JsonObject root = JsonParser.parseString(body).getAsJsonObject();
+				
+				int promptTokens = 0;
+				int completionTokens = 0;
+				int cachedTokens = 0;
+				telemetryBlock = "";
+				
+				try {
+					if (isGemini) {
+						if (root.has("candidates") && root.getAsJsonArray("candidates").size() > 0) {
+							JsonObject candidate = root.getAsJsonArray("candidates").get(0).getAsJsonObject();
+							if (candidate.has("content")) {
+								responseText = candidate.getAsJsonObject("content")
+										.getAsJsonArray("parts").get(0).getAsJsonObject()
+										.get("text").getAsString();
+							}
 						}
-						end++;
+						
+						if (root.has("usageMetadata")) {
+							JsonObject usage = root.getAsJsonObject("usageMetadata");
+							promptTokens = usage.has("promptTokenCount") ? usage.get("promptTokenCount").getAsInt() : 0;
+							completionTokens = usage.has("candidatesTokenCount") ? usage.get("candidatesTokenCount").getAsInt() : 0;
+							cachedTokens = usage.has("cachedContentTokenCount") ? usage.get("cachedContentTokenCount").getAsInt() : 0;
+						}
+					} else {
+						if (root.has("choices") && root.getAsJsonArray("choices").size() > 0) {
+							JsonObject choice = root.getAsJsonArray("choices").get(0).getAsJsonObject();
+							if (choice.has("message")) {
+								responseText = choice.getAsJsonObject("message").get("content").getAsString();
+							}
+						}
+						
+						if (root.has("usage")) {
+							JsonObject usage = root.getAsJsonObject("usage");
+							promptTokens = usage.has("prompt_tokens") ? usage.get("prompt_tokens").getAsInt() : 0;
+							completionTokens = usage.has("completion_tokens") ? usage.get("completion_tokens").getAsInt() : 0;
+							
+							if (usage.has("prompt_cache_hit_tokens")) {
+								cachedTokens = usage.get("prompt_cache_hit_tokens").getAsInt();
+							} else if (usage.has("prompt_tokens_details")) {
+								JsonObject details = usage.getAsJsonObject("prompt_tokens_details");
+								cachedTokens = details.has("cached_tokens") ? details.get("cached_tokens").getAsInt() : 0;
+							}
+						}
 					}
-					responseText = body.substring(start, end).replace("\\n", "\n").replace("\\\"", "\"").replace("\\\\", "\\");
+					
+					// Recupero preferenze per calcolo costi
+					String prefCurrencyKey = isGemini ? PreferenceConstants.GEMINI_CURRENCY : PreferenceConstants.DEEPSEEK_CURRENCY;
+					String prefInputCostKey = isGemini ? PreferenceConstants.GEMINI_INPUT_COST : PreferenceConstants.DEEPSEEK_INPUT_COST;
+					String prefOutputCostKey = isGemini ? PreferenceConstants.GEMINI_OUTPUT_COST : PreferenceConstants.DEEPSEEK_OUTPUT_COST;
+					String prefCacheCostKey = isGemini ? PreferenceConstants.GEMINI_CACHE_COST : PreferenceConstants.DEEPSEEK_CACHE_COST;
+					
+					String currency = store.getString(prefCurrencyKey);
+					double inputCostPerM = parseDoubleSafe(store.getString(prefInputCostKey));
+					double outputCostPerM = parseDoubleSafe(store.getString(prefOutputCostKey));
+					double cacheCostPerM = parseDoubleSafe(store.getString(prefCacheCostKey));
+					
+					int actualInputTokens = promptTokens - cachedTokens;
+					
+					double inputCost = (actualInputTokens / 1_000_000.0) * inputCostPerM;
+					double outputCost = (completionTokens / 1_000_000.0) * outputCostPerM;
+					double cacheCost = (cachedTokens / 1_000_000.0) * cacheCostPerM;
+					
+					// Aggiornamento sessione
+					currentSession.setCurrency(currency);
+					currentSession.addTokensAndCost(actualInputTokens, completionTokens, cachedTokens, inputCost, outputCost, cacheCost);
 					
 					// Aggiungi alla conversazione e salva
-					currentConversation.add(new ChatMessage("assistant", responseText));
-					saveCurrentHistory(); // Sovrascrive lo stesso file con la risposta dell'assistente
-				} else {
-					responseText = "Errore API (" + response.statusCode() + "): " + body;
+					currentSession.getMessages().add(new ChatMessage("assistant", responseText));
+					saveCurrentHistory(); // Sovrascrive lo stesso file con la risposta dell'assistente e i nuovi token
+					
+					// Costruzione del blocco di telemetria
+					String sym = "EUR".equalsIgnoreCase(currency) ? "€" : "$";
+					telemetryBlock = String.format(java.util.Locale.US,
+						"--------------------------------------------------\n" +
+						"📊 Ultimo Invio (Token): Input: %d | Output: %d | Cache: %d\n" +
+						"📈 Totali Sessione (Token): Input: %d | Output: %d | Cache: %d\n" +
+						"💸 Costi Sessione: Input: %.6f %s | Output: %.6f %s | Cache: %.6f %s\n" +
+						"💰 Costo Complessivo Chat: %.6f %s\n" +
+						"--------------------------------------------------\n\n",
+						actualInputTokens, completionTokens, cachedTokens,
+						currentSession.getTotalInputTokens(), currentSession.getTotalOutputTokens(), currentSession.getTotalCachedTokens(),
+						currentSession.getTotalInputCost(), sym, currentSession.getTotalOutputCost(), sym, currentSession.getTotalCachedCost(), sym,
+						currentSession.getGrandTotalCost(), sym);
+
+					// Aggiungiamo il blocco di telemetria come messaggio di sistema alla chat session (opzionale, o lo appendiamo come AI?)
+					// Per ora lo mettiamo come system message così non viene ricaricato come contesto per il LLM.
+					
+				} catch (Exception e) {
+					responseText = "Errore nel parsing della risposta JSON: " + e.getMessage() + "\nBody: " + body;
 				}
 				
 			} catch (Exception ex) {
@@ -414,16 +531,23 @@ public class ChatView extends ViewPart {
 			}
 			
 			final String finalRes = responseText;
+			final String finalTelemetry = telemetryBlock;
 			Display.getDefault().asyncExec(() -> {
-				if (!chatHistory.isDisposed()) {
-					String current = chatHistory.getText();
-					if (current.endsWith(loadingMsg)) {
-						chatHistory.setText(current.substring(0, current.length() - loadingMsg.length()));
+				currentSession.getMessages().remove(loadingMsgObj);
+				
+				if (!finalRes.startsWith("Errore") && !finalRes.startsWith("Eccezione")) {
+					// L'assistente ha risposto correttamente, il messaggio l'abbiamo già aggiunto in `currentSession` e salvato
+					if (finalTelemetry != null && !finalTelemetry.isEmpty()) {
+						// Aggiungiamo telemetria alla fine come system message
+						currentSession.getMessages().add(new ChatMessage("system", finalTelemetry));
 					}
-					chatHistory.append("AI: " + finalRes + "\n\n");
-					chatHistory.setSelection(chatHistory.getText().length());
-					refreshHistoryCombo();
+				} else {
+					// Mostra l'errore come system
+					currentSession.getMessages().add(new ChatMessage("system", finalRes));
 				}
+				
+				updateBrowserContent();
+				refreshHistoryCombo();
 				
 				if (!chatInput.isDisposed()) {
 					chatInput.setEnabled(true);
@@ -447,6 +571,16 @@ public class ChatView extends ViewPart {
 		}
 	}
 
+	private double parseDoubleSafe(String val) {
+		if (val == null || val.trim().isEmpty()) return 0.0;
+		try {
+			// Converti virgola in punto se l'utente ha digitato la virgola
+			return Double.parseDouble(val.replace(",", ".").trim());
+		} catch (Exception e) {
+			return 0.0;
+		}
+	}
+
 	/**
 	 * Recupera il codice sorgente dall'editor di testo attualmente in uso su Eclipse
 	 * e lo incolla formattato all'interno della casella di input della chat.
@@ -457,7 +591,7 @@ public class ChatView extends ViewPart {
 		
 		IEditorPart activeEditor = window.getActivePage().getActiveEditor();
 		if (activeEditor == null) {
-			chatHistory.append("Sistema: Nessun editor attivo trovato.\n\n");
+			addSystemMessage("Nessun editor attivo trovato.");
 			return;
 		}
 
@@ -467,19 +601,19 @@ public class ChatView extends ViewPart {
 		}
 
 		if (textEditor == null) {
-			chatHistory.append("Sistema: L'editor attivo non è un editor testuale.\n\n");
+			addSystemMessage("L'editor attivo non è un editor testuale.");
 			return;
 		}
 
 		IDocumentProvider provider = textEditor.getDocumentProvider();
 		if (provider == null) {
-			chatHistory.append("Sistema: Impossibile recuperare il contenuto dell'editor.\n\n");
+			addSystemMessage("Impossibile recuperare il contenuto dell'editor.");
 			return;
 		}
 		
 		IDocument document = provider.getDocument(textEditor.getEditorInput());
 		if (document == null) {
-			chatHistory.append("Sistema: Impossibile leggere il documento.\n\n");
+			addSystemMessage("Impossibile leggere il documento.");
 			return;
 		}
 
@@ -503,7 +637,7 @@ public class ChatView extends ViewPart {
 		
 		IEditorPart activeEditor = window.getActivePage().getActiveEditor();
 		if (activeEditor == null) {
-			chatHistory.append("Sistema: Nessun editor attivo trovato.\n\n");
+			addSystemMessage("Nessun editor attivo trovato.");
 			return;
 		}
 
@@ -513,13 +647,13 @@ public class ChatView extends ViewPart {
 		}
 
 		if (textEditor == null) {
-			chatHistory.append("Sistema: L'editor attivo non è un editor testuale.\n\n");
+			addSystemMessage("L'editor attivo non è un editor testuale.");
 			return;
 		}
 
 		org.eclipse.jface.viewers.ISelectionProvider selectionProvider = textEditor.getSelectionProvider();
 		if (selectionProvider == null) {
-			chatHistory.append("Sistema: Impossibile recuperare la selezione dall'editor.\n\n");
+			addSystemMessage("Impossibile recuperare la selezione dall'editor.");
 			return;
 		}
 
@@ -529,7 +663,7 @@ public class ChatView extends ViewPart {
 			String selectedText = textSelection.getText();
 			
 			if (selectedText == null || selectedText.isEmpty()) {
-				chatHistory.append("Sistema: Errore. Nessun testo selezionato nell'editor attivo.\n\n");
+				addSystemMessage("Errore. Nessun testo selezionato nell'editor attivo.");
 				return;
 			}
 			
@@ -541,7 +675,7 @@ public class ChatView extends ViewPart {
 			chatInput.setSelection(chatInput.getText().length());
 			chatInput.setFocus();
 		} else {
-			chatHistory.append("Sistema: La selezione corrente non è testuale.\n\n");
+			addSystemMessage("La selezione corrente non è testuale.");
 		}
 	}
 }

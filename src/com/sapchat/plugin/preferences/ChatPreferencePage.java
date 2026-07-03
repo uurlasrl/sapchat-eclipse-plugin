@@ -54,6 +54,15 @@ public class ChatPreferencePage extends FieldEditorPreferencePage implements IWo
 		};
 		addField(geminiKeyField);
 		
+		addField(new StringFieldEditor(PreferenceConstants.GEMINI_INPUT_COST, "Input Cost / 1M:", getFieldEditorParent()));
+		addField(new StringFieldEditor(PreferenceConstants.GEMINI_OUTPUT_COST, "Output Cost / 1M:", getFieldEditorParent()));
+		addField(new StringFieldEditor(PreferenceConstants.GEMINI_CACHE_COST, "Cache Cost / 1M:", getFieldEditorParent()));
+		addField(new ComboFieldEditor(PreferenceConstants.GEMINI_CURRENCY, "Currency:",
+				new String[][] { 
+					{ "EUR (€)", "EUR" },
+					{ "USD ($)", "USD" } 
+				}, getFieldEditorParent()));
+		
 		addSeparator();
 		
 		// DeepSeek Config
@@ -67,6 +76,15 @@ public class ChatPreferencePage extends FieldEditorPreferencePage implements IWo
 			}
 		};
 		addField(deepseekKeyField);
+		
+		addField(new StringFieldEditor(PreferenceConstants.DEEPSEEK_INPUT_COST, "Input Cost / 1M:", getFieldEditorParent()));
+		addField(new StringFieldEditor(PreferenceConstants.DEEPSEEK_OUTPUT_COST, "Output Cost / 1M:", getFieldEditorParent()));
+		addField(new StringFieldEditor(PreferenceConstants.DEEPSEEK_CACHE_COST, "Cache Cost / 1M:", getFieldEditorParent()));
+		addField(new ComboFieldEditor(PreferenceConstants.DEEPSEEK_CURRENCY, "Currency:",
+				new String[][] { 
+					{ "EUR (€)", "EUR" },
+					{ "USD ($)", "USD" } 
+				}, getFieldEditorParent()));
 		
 		addSeparator();
 		
@@ -82,6 +100,14 @@ public class ChatPreferencePage extends FieldEditorPreferencePage implements IWo
 				getFieldEditorParent());
 		windowSizeEditor.setValidRange(1, 1000);
 		addField(windowSizeEditor);
+		
+		addSeparator();
+		
+		// Debug Config
+		addField(new BooleanFieldEditor(
+				PreferenceConstants.ENABLE_DEBUG_OUTPUT,
+				"Abilita output di debug in chat",
+				getFieldEditorParent()));
 	}
 	
 	private void addSeparator() {

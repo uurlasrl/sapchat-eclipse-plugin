@@ -13,3 +13,5 @@ Require-Bundle: org.eclipse.ui,
 Bundle-RequiredExecutionEnvironment: JavaSE-21
 Automatic-Module-Name: com.sapchat.plugin
 Bundle-ActivationPolicy: lazy
+Bundle-ClassPath: .,
+ lib/gson-2.14.0.jar

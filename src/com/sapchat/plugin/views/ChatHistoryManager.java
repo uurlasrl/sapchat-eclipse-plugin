@@ -13,6 +13,13 @@ import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
 import com.sapchat.plugin.Activator;
 
 /**
@@ -42,52 +49,40 @@ public class ChatHistoryManager {
 	}
 
 	/**
-	 * Salva una lista di messaggi in un nuovo file JSON generato con la data e l'ora attuali.
+	 * Salva una sessione in un nuovo file JSON generato con la data e l'ora attuali.
 	 * 
-	 * @param messages la lista di messaggi (ChatMessage) da salvare
+	 * @param session la sessione da salvare
 	 * @return il nome del file generato, oppure null in caso di errore
 	 */
-	public static String saveHistory(List<ChatMessage> messages) {
-		if (messages == null || messages.isEmpty()) {
+	public static String saveHistory(ChatSession session) {
+		if (session == null || session.getMessages().isEmpty()) {
 			return null;
 		}
 		
 		String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
 		String filename = "chat_" + timestamp + ".json";
-		return saveHistory(messages, filename);
+		return saveHistory(session, filename);
 	}
 
 	/**
-	 * Salva una lista di messaggi in un file JSON specifico (sovrascrivendolo se esiste).
+	 * Salva una sessione in un file JSON specifico (sovrascrivendolo se esiste).
 	 * 
-	 * @param messages la lista di messaggi (ChatMessage) da salvare
+	 * @param session la sessione da salvare
 	 * @param filename il nome del file JSON in cui salvare (es. "chat_history_<sessionId>.json")
 	 * @return il nome del file salvato, oppure null in caso di errore
 	 */
-	public static String saveHistory(List<ChatMessage> messages, String filename) {
-		if (messages == null || messages.isEmpty() || filename == null || filename.isEmpty()) {
+	public static String saveHistory(ChatSession session, String filename) {
+		if (session == null || session.getMessages().isEmpty() || filename == null || filename.isEmpty()) {
 			return null;
 		}
 		
 		Path file = getHistoryDir().resolve(filename);
 		
-		StringBuilder json = new StringBuilder("[\n");
-		for (int i = 0; i < messages.size(); i++) {
-			ChatMessage msg = messages.get(i);
-			String escapedContent = msg.getContent().replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "");
-			json.append("  {\n");
-			json.append("    \"role\": \"").append(msg.getRole()).append("\",\n");
-			json.append("    \"content\": \"").append(escapedContent).append("\"\n");
-			json.append("  }");
-			if (i < messages.size() - 1) {
-				json.append(",");
-			}
-			json.append("\n");
-		}
-		json.append("]");
+		Gson gson = new GsonBuilder().setPrettyPrinting().create();
+		String json = gson.toJson(session);
 		
 		try {
-			Files.writeString(file, json.toString());
+			Files.writeString(file, json);
 			return filename;
 		} catch (IOException e) {
 			e.printStackTrace();
@@ -119,61 +114,49 @@ public class ChatHistoryManager {
 	 * Carica la cronologia di una conversazione leggendo il file JSON specificato.
 	 * 
 	 * @param filename il nome del file da caricare (es. "chat_20260625_103000.json")
-	 * @return una lista di ChatMessage recuperata dal file
+	 * @return la sessione recuperata dal file
 	 */
-	public static List<ChatMessage> loadHistory(String filename) {
+	public static ChatSession loadHistory(String filename) {
 		Path file = getHistoryDir().resolve(filename);
 		if (!Files.exists(file)) {
-			return new ArrayList<>();
+			return new ChatSession();
 		}
 		
 		try {
 			String json = Files.readString(file);
-			return parseSimpleJsonArray(json);
+			return parseSessionJson(json);
 		} catch (IOException e) {
 			e.printStackTrace();
-			return new ArrayList<>();
+			return new ChatSession();
 		}
 	}
 
 	/**
-	 * Un parser molto basilare per estrarre la lista di messaggi dalla stringa JSON.
+	 * Un parser molto basilare per estrarre la sessione dalla stringa JSON.
 	 * Sviluppato manualmente per minimizzare le dipendenze esterne.
 	 * 
 	 * @param json la stringa in formato JSON
-	 * @return la lista di ChatMessage elaborata
+	 * @return la sessione elaborata
 	 */
-	private static List<ChatMessage> parseSimpleJsonArray(String json) {
-		List<ChatMessage> messages = new ArrayList<>();
+	private static ChatSession parseSessionJson(String json) {
+		json = json.trim();
+		Gson gson = new Gson();
 		
-		// Extremely simple parser since we control the format
-		int idx = 0;
-		while ((idx = json.indexOf("\"role\":", idx)) != -1) {
-			int roleStart = json.indexOf("\"", idx + 7) + 1;
-			int roleEnd = json.indexOf("\"", roleStart);
-			String role = json.substring(roleStart, roleEnd);
-			
-			int contentIdx = json.indexOf("\"content\":", roleEnd);
-			if (contentIdx == -1) break;
-			
-			int contentStart = json.indexOf("\"", contentIdx + 10) + 1;
-			int contentEnd = contentStart;
-			while (contentEnd < json.length()) {
-				if (json.charAt(contentEnd) == '"' && json.charAt(contentEnd - 1) != '\\') {
-					break;
-				}
-				contentEnd++;
+		// Retro-compatibilità: vecchio formato array
+		if (json.startsWith("[")) {
+			ChatSession session = new ChatSession();
+			List<ChatMessage> messages = new ArrayList<>();
+			JsonArray array = JsonParser.parseString(json).getAsJsonArray();
+			for (JsonElement element : array) {
+				JsonObject obj = element.getAsJsonObject();
+				String role = obj.has("role") ? obj.get("role").getAsString() : "user";
+				String content = obj.has("content") ? obj.get("content").getAsString() : "";
+				messages.add(new ChatMessage(role, content));
 			}
-			
-			String content = json.substring(contentStart, contentEnd)
-					.replace("\\n", "\n")
-					.replace("\\\"", "\"")
-					.replace("\\\\", "\\");
-					
-			messages.add(new ChatMessage(role, content));
-			idx = contentEnd;
+			session.setMessages(messages);
+			return session;
 		}
 		
-		return messages;
+		return gson.fromJson(json, ChatSession.class);
 	}
 }
